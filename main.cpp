@@ -5,6 +5,8 @@
 //#include "LCD.h"
 #include "periph.h"
 //#include "serialATmega.h"
+#include "stdlib.h" //needed for rand() function
+#include "color.h"
 
 //128*160
 // LED
@@ -23,7 +25,22 @@
 #define RASET 0x2B //Row Address Set
 #define RAMWR 0x2C //Memory Write
 
+//GLOBAL VARIABLES
+unsigned char gameState = 0; //0: Pause, 1: Play
+//Player 1 Joystick
 unsigned short p1Joy;
+unsigned short p1SW;
+unsigned char p1JoyState; //0: IDLE, 1: RIGHT, 2:LEFT
+
+//Player 1 Character
+#define CHAR_WIDTH 14
+#define SCREEN_WIDTH 128
+#define XPOS_MIN 0
+#define XPOS_MAX (SCREEN_WIDTH - CHAR_WIDTH) // 114
+int xPos = (SCREEN_WIDTH - CHAR_WIDTH) / 2; // start centered
+int p1Score = 0;
+
+
 
 void HardwareReset()
 {
@@ -68,17 +85,20 @@ void ST7735_init()
   _delay_ms(200);
 }
 
+uint16_t Color565(uint8_t r, uint8_t g, uint8_t b) {
+  return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
+}
+
 //row-horizontal (128)
 //columns-vertical (160)
-void fillScreen(uint16_t topColor, uint16_t bottomColor)
-{
+void fillScreen(uint16_t color){
   Send_Command(CASET); //set column address
   Send_Data(0x00); Send_Data(0x00); //start at 0
-  Send_Data(0x00); Send_Data(0x7F); // end at 127
+  Send_Data(0x00); Send_Data(0x80); // end at 128
 
   Send_Command(RASET); //set row address
   Send_Data(0x00); Send_Data(0x00); //start at 0
-  Send_Data(0x00); Send_Data(0x9F); // end at 159
+  Send_Data(0x00); Send_Data(0xA0); // end at 160
 
   Send_Command(RAMWR); //write RAM
 
@@ -86,55 +106,6 @@ void fillScreen(uint16_t topColor, uint16_t bottomColor)
     Send_Data(color >> 8); //Upper byte
     Send_Data(color & 0xFF); //Lower byte
   }
-}
-
-//BGR color order
-void black()
-{
-  SPI_SEND(0);
-  SPI_SEND(0);
-  SPI_SEND(0);
-}
-
-void white()
-{
-  SPI_SEND(255);
-  SPI_SEND(255);
-  SPI_SEND(255);
-}
-void red()
-{
-  SPI_SEND(0);
-  SPI_SEND(0);
-  SPI_SEND(255);
-}
-
-void green()
-{
-  SPI_SEND(0);
-  SPI_SEND(255);
-  SPI_SEND(0);
-}
-
-void blue()
-{
-  SPI_SEND(255);
-  SPI_SEND(0);
-  SPI_SEND(0);
-}
-
-void yellow()
-{
-  SPI_SEND(0);
-  SPI_SEND(255);
-  SPI_SEND(255);
-}
-
-void setColor(int B, int G, int R)
-{
-  SPI_SEND(B);
-  SPI_SEND(G);
-  SPI_SEND(R);
 }
 
 void sprite(int XS, int XE, int YS, int YE, uint16_t color565)
@@ -157,22 +128,99 @@ void sprite(int XS, int XE, int YS, int YE, uint16_t color565)
   }
 }
 
-uint16_t Color565(uint8_t r, uint8_t g, uint8_t b) {
-  return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
+void drawP1At(int x) {
+  uint16_t yellow = Color565(255, 255, 0); // Body
+  uint16_t white  = Color565(255, 255, 255); // Eye
+  uint16_t blue   = Color565(0, 0, 255); // Overalls
+  uint16_t gray   = Color565(160, 160, 160); // Goggle
+  uint16_t black  = Color565(0, 0, 0); // Pupil
+
+  sprite(x, x + 13, 140, 153, yellow); // Body
+  sprite(x + 3, x + 10, 143, 147, gray); // Goggle
+  sprite(x + 4, x + 9, 144, 146, white); // Eye white
+  sprite(x + 5, x + 8, 143, 147, white); // Eye padding
+  sprite(x + 6, x + 7, 144, 145, black); // Pupil
+  sprite(x, x + 13, 150, 153, blue); // Overalls top
+  sprite(x, x + 2, 154, 159, blue); // Left leg
+  sprite(x + 11, x + 13, 154, 159, blue); // Right leg
 }
 
-void enemySprite1 (int startX)
-{
-  int XS = startX;
-  int XE = startX + 9;
-  int YS = 0;
-  int YE = 9;
+void drawDigit(uint8_t digit, uint8_t x, uint8_t y, uint16_t color) {
+  //3x5 pixel digit patterns 
+  static const uint8_t digits[10][5] = {
+    {0b111, 0b101, 0b101, 0b101, 0b111}, // 0
+    {0b010, 0b110, 0b010, 0b010, 0b111}, // 1
+    {0b111, 0b001, 0b111, 0b100, 0b111}, // 2
+    {0b111, 0b001, 0b111, 0b001, 0b111}, // 3
+    {0b101, 0b101, 0b111, 0b001, 0b001}, // 4
+    {0b111, 0b100, 0b111, 0b001, 0b111}, // 5
+    {0b111, 0b100, 0b111, 0b101, 0b111}, // 6
+    {0b111, 0b001, 0b010, 0b100, 0b100}, // 7
+    {0b111, 0b101, 0b111, 0b101, 0b111}, // 8
+    {0b111, 0b101, 0b111, 0b001, 0b111}, // 9
+  };
 
-  uint16_t blueColor = Color565(0, 0, 255); // bright blue
-
-  // Draw the enemy sprite
-  sprite(XS, XE, YS, YE, blueColor);
+  for (uint8_t row = 0; row < 5; row++) {
+    for (uint8_t col = 0; col < 3; col++) {
+      if (digits[digit][row] & (1 << (2 - col))) {
+        sprite(x + col, x + col, y + row, y + row, color);
+      }
+    }
+  }
 }
+
+void drawScore(uint16_t score) {
+  uint8_t x = 2;
+  uint8_t y = 2;
+  uint16_t color = Color565(255, 255, 255); // White
+
+  // Clear area (assumes max 3 digits)
+  sprite(0, 30, 0, 10, 0x0000); // Clear previous
+
+  // Draw digits right to left
+  uint16_t temp = score;
+  uint8_t digits[3] = {0, 0, 0};
+  int i = 2;
+  do {
+    digits[i--] = temp % 10;
+    temp /= 10;
+  } while (temp > 0 && i >= 0);
+
+  uint8_t xpos = x;
+  for (i = 0; i < 3; i++) {
+    if (i == 0 && digits[i] == 0 && score < 100) {
+      xpos += 4; // Skip leading zero
+      continue;
+    }
+    if (i == 1 && digits[i] == 0 && score < 10) {
+      xpos += 4;
+      continue;
+    }
+    drawDigit(digits[i], xpos, y, color);
+    xpos += 5;
+  }
+}
+
+void drawBomb(int x, int y) {
+  uint16_t black = Color565(0, 0, 0);
+  uint16_t red   = Color565(255, 0, 0);
+  uint16_t orange = Color565(255, 165, 0);
+
+  // Main body: 24x24 rounded shape
+  sprite(x + 6,  x + 17, y,     y,     black);  // top
+  sprite(x + 4,  x + 19, y + 1, y + 1, black);
+  sprite(x + 2,  x + 21, y + 2, y + 20, black); // middle bulk
+  sprite(x + 4,  x + 19, y + 21, y + 21, black);
+  sprite(x + 6,  x + 17, y + 22, y + 22, black); // bottom
+
+  // Fuse (larger and offset upward)
+  sprite(x + 10, x + 12, y - 6, y - 6, red);     // fuse tip
+  sprite(x + 10, x + 12, y - 5, y - 5, orange);  // fuse base
+}
+
+
+
+
 
 //Task struct for concurrent synchSMs implmentations
 typedef struct _task{
@@ -182,11 +230,14 @@ typedef struct _task{
 	int (*TickFct)(int); 		//Task tick function
 } task;
 
-const unsigned long JOYSTICK_PERIOD = 100;
-const unsigned long DISPLAY_PERIOD = 100;
-const unsigned long GCD_PERIOD = 1;
+const unsigned long PERIOD_JOYSTICK = 50;
+const unsigned long PERIOD_MOVE = 50;
+const unsigned long PERIOD_SCORE = 1000;
+const unsigned long PERIOD_GAMESTATE = 100;
+const unsigned long PERIOD_BOMB = 100;
+const unsigned long PERIOD_GCD = 1;
 
-#define NUM_TASKS 2
+#define NUM_TASKS 5
 task tasks[NUM_TASKS];
 
 void TimerISR() {
@@ -195,142 +246,283 @@ void TimerISR() {
 			tasks[i].state = tasks[i].TickFct(tasks[i].state); // Tick and set the next state for this task
 			tasks[i].elapsedTime = 0;                          // Reset the elapsed time for the next tick
 		}
-		tasks[i].elapsedTime += GCD_PERIOD;                        // Increment the elapsed time by GCD_PERIOD
+		tasks[i].elapsedTime += PERIOD_GCD;                        // Increment the elapsed time by PERIOD_GCD
 	}
 }
 
-enum joystick{joystickInit, joystickRead};
-
-int joystick(int state)
+enum JOY_STATES{JOYINIT, JOYREAD};
+int tickJoy(int state)
 {
+  //Transitions
   switch(state)
   {
-    case joystickInit:
-      state = joystickRead;
+    case JOYINIT:
+      state = JOYREAD;
     break;
 
-    case joystickRead:
-      state = joystickRead;
+    case JOYREAD:
+      state = JOYREAD;
     break;
 
     default:
-      state = joystickRead;
+      state = JOYREAD;
     break;
   }
 
+  //Actions
   switch(state)
   {
-    case joystickInit:
+    case JOYINIT:
     break;
 
-    case joystickRead:
-      p1Joy = ADC_read(0);
-      Serial.println(p1Joy);
+    case JOYREAD:
+      p1Joy = ADC_read(0); //Player 1 tickJoy Read
+      p1SW = !GetBit(PINF, 2); //By default joystick is high, so we want the reverse
+      
+      if(p1Joy<=600 && p1Joy>=400){
+        p1JoyState = 0; //IDLE Position
+        PORTB &= ~(1 << 7);
+      }
+      else if(p1Joy<400){
+        p1JoyState = 1; //RIGHT Position
+        PORTB |= (1 << 7); //BUZZER SOUND
+      }
+      else if(p1Joy>600){
+        p1JoyState = 2; //LEFT Position
+        PORTB |= (1 << 7); //BUZZER SOUND
+      }
     break;
   }
 
   return state;
 }
 
-// Global sprite properties
-unsigned char playerXS = 54;   // Start X (centered)
-unsigned char playerXE = 74;   // End X (20 pixels wide)
-unsigned char playerYS = 140;  // Bottom of screen
-unsigned char playerYE = 159;  // 20 pixels tall
+enum MOVE_STATES{MOVEIDLE, MOVERIGHT, MOVELEFT};
+int tickMove(int state) 
+{
+  if(gameState == 0){ //player cannot move during puase time
+    drawP1At(xPos);
+    return MOVEIDLE;
+  }
 
-int newXS = 0;
-int newXE = 0;
+  //Transitions
+  switch(state)
+  {
+    case MOVEIDLE:
+      if(p1JoyState == 1){
+        state = MOVERIGHT;
+      }
+      else if (p1JoyState == 2){
+        state = MOVELEFT;
+      }
+      else if  (p1JoyState == 0){
+        state = MOVEIDLE;
+      }
+    break;
 
-// Joystick X-axis value (updated in a separate task)
-//unsigned short xAxis;
+    case MOVERIGHT:
+      state = MOVEIDLE;
+    break;
 
-enum display { displayInit, displayMove };
+    case MOVELEFT:
+      state = MOVEIDLE;
+    break;
 
-int display(int state) {
-    unsigned short threshold = 100;   // Dead zone
-    unsigned char stepSize = 10;       // Speed of movement
+    default:
+      state = MOVEIDLE;
+    break;
+  }
 
-    // State transitions
-    switch (state) {
-        case displayInit:
-            state = displayMove;
-            break;
+  //Actions
+  switch(state)
+  {
+    case MOVEIDLE:
+    break;
 
-        case displayMove:
-            state = displayMove;
-            break;
+    case MOVERIGHT:
+      if(xPos < XPOS_MAX){
+        sprite(xPos, xPos + 13, 140, 159, 0x0000); //Clear previous
+        xPos += 7; //Step size (Aka speed)
+        if (xPos > XPOS_MAX) xPos = XPOS_MAX; // Clamp
+      }
+    break;
 
-        default:
-            state = displayInit;
-            break;
-    }
-
-    // State actions
-    unsigned short xAxis = 0;
-    switch (state) 
-    {
-      case displayInit:
-        // Draw sprite for the first time
-        sprite(playerXS, playerXE, playerYS, playerYE, 0xF800); // red
-        break;
-
-      case displayMove:
-        // Erase old sprite
-        sprite(playerXS, playerXE, playerYS, playerYE, 0x0000); // black
-
-        // Move LEFT
-        if (xAxis < 512 - threshold) 
-        {
-          newXS = (int)playerXS - stepSize;
-          newXE = (int)playerXE - stepSize;
-
-          if (newXS >= 0) 
-          {
-            playerXS = (unsigned char)newXS;
-            playerXE = (unsigned char)newXE;
-          } 
-          else 
-          {
-            playerXS = 0;
-            playerXE = 20;
-          }
-        }
-
-        // Move RIGHT
-        else if (xAxis > 512 + threshold) 
-        {
-          newXS = (int)playerXS + stepSize;
-          newXE = (int)playerXE + stepSize;
-
-          if (newXE <= 127) 
-          {
-            playerXS = (unsigned char)newXS;
-            playerXE = (unsigned char)newXE;
-          } 
-          else 
-          {
-            playerXE = 127;
-            playerXS = 127 - 20;
-          }
-        }
-
-            // Draw sprite at new position
-        sprite(playerXS, playerXE, playerYS, playerYE, 0xF800); // red
-      break;
-
-      default:
-      break;
-    }
-
+    case MOVELEFT:
+      if(xPos > XPOS_MIN){
+        sprite(xPos, xPos + 13, 140, 159, 0x0000); //Clear previous
+        xPos -= 7; //Step size(Aka speed)
+        if (xPos < XPOS_MIN) xPos = XPOS_MIN; // Clamp
+      }
+    break;
+  }
+  drawP1At(xPos);
   return state;
 }
 
-// need to create the objects falling 
-// 4 objects will fall at random and will be roughly 10*10 to test
-// object 1: bullet (5*5)
-// object 2: sword (7*7)
-// object 3: vase (6*6)
-// object 4: plane (25*25)
+enum SCORE_STATES{SCORERESET, SCORECOUNT};
+int tickScore(int state)
+{
+  if(gameState == 0){ //Score is still during pause time
+    return state;
+  }
+
+  //Transitions
+  switch(state)
+  {
+    case SCORERESET:
+      state = SCORECOUNT;
+    break;
+
+    case SCORECOUNT:
+      
+    break;
+
+    default:
+      state = SCORECOUNT;
+    break;
+  }
+
+  //Actions
+  switch(state)
+  {
+    case SCORERESET:
+      
+    break;
+
+    case SCORECOUNT:
+      p1Score++;
+      drawScore(p1Score);
+    break;
+
+    default:
+      state = SCORECOUNT;
+    break;
+  }
+  return state;
+}
+
+enum GAMESTATE_STATES{GAMEINIT, PAUSE, PAUSEPRESS, PLAY, PLAYPRESS};
+int tickGameState(int state)
+{
+  //Transitions
+  switch(state)
+  {
+    case GAMEINIT:
+      state = PAUSE;
+    break;
+
+    case PAUSE:
+      if(p1SW == 1){
+        state = PAUSEPRESS;
+      }
+      else if(p1SW==0){
+        state = PAUSE;
+      }
+    break;
+
+    case PAUSEPRESS:
+      if(p1SW == 0){
+        state = PLAY;
+      }
+      else if(p1SW == 1){
+        state = PAUSEPRESS;
+      }
+    break;
+
+    case PLAY:
+      if(p1SW == 1){
+        state = PLAYPRESS;
+      }
+      else if(p1SW == 0){
+        state = PLAY;
+      }
+    break;
+
+    case PLAYPRESS:
+      if(p1SW==0){
+        state = PAUSE;
+      }
+      else if(p1SW == 1){
+        state = PLAYPRESS;
+      }
+    break;
+
+    default:
+      state = PAUSE;
+    break;
+  }
+
+  //Actions
+  switch(state)
+  {
+    case GAMEINIT:
+    break;
+
+    case PAUSE:
+      gameState = 0;
+    break;
+
+    case PAUSEPRESS:
+    break;
+
+    case PLAY:
+      gameState = 1;
+    break;
+
+    case PLAYPRESS:
+    break;
+  }
+  return state;
+}
+
+#define MAX_BOMBS 4
+typedef struct {
+  int x;
+  int y;
+  uint8_t active;
+} Bomb;
+Bomb bombs[MAX_BOMBS]; 
+#define BOMB_WIDTH  22
+#define BOMB_HEIGHT 29
+enum BOMB_STATES{BOMBIDLE, BOMBSEND};
+int tickBomb(int state)
+{
+  if(gameState == 0){ //make sure to not send bombs while paused
+    return state;
+  }
+  
+  // Try to activate a new bomb if there's an inactive one
+  for (int i = 0; i < MAX_BOMBS; i++) {
+    if (!bombs[i].active && (rand() % 10 < 3)) { // 30% chance to spawn per cycle
+      bombs[i].x = rand() % (SCREEN_WIDTH - 24);  // Leave margin for bomb width
+      bombs[i].y = 0;
+      bombs[i].active = 1;
+      break; // Spawn one per tick max
+    }
+  }
+
+  // Update all active bombs
+  for (int i = 0; i < MAX_BOMBS; i++) {
+    if (bombs[i].active) {
+      // Clear previous position
+      int clearTop = (bombs[i].y - 6 < 0) ? 0 : bombs[i].y - 6;
+      int clearBottom = bombs[i].y + 22;
+      sprite(bombs[i].x + 0, bombs[i].x + 21, clearTop, clearBottom, 0x0000);
+
+      // Move down
+      bombs[i].y += 6;
+
+      // Deactivate if off screen
+      if (bombs[i].y > 160) {
+        bombs[i].active = 0;
+      } else {
+        drawBomb(bombs[i].x, bombs[i].y);
+      }
+    }
+  }
+
+  return state;
+}
 
 int main(void)
 {
@@ -346,29 +538,49 @@ int main(void)
   DDRE = 0xFF;
   PORTE = 0x00;
 
+  DDRF = 0x00;
+  DDRF &= ~(1 << PF2); // Set PF2 as input
+  PORTF = 0x00; //No pull up so tickJoy can read properly
+  PORTF |= (1 << PF2); //enable pull-up resistor for tickJoy SW
+
   ADC_init();
   SPI_INIT();
   ST7735_init();
-  fillScreen(0x0000, 0x0000);
-  enemySprite1(60);
+  fillScreen(0x0000); // Clear screen to black
+
+  Serial.begin(9600);
 
   unsigned char i = 0;
-  tasks[0].period = JOYSTICK_PERIOD;
-  tasks[0].state = joystickInit;
-  tasks[0].elapsedTime = JOYSTICK_PERIOD;
-  tasks[0].TickFct = &joystick;
+  tasks[i].period = PERIOD_JOYSTICK;
+  tasks[i].state = JOYINIT;
+  tasks[i].elapsedTime = PERIOD_JOYSTICK;
+  tasks[i].TickFct = &tickJoy;
   i++;
-  tasks[1].period = DISPLAY_PERIOD;
-  tasks[1].state = displayInit;
-  tasks[1].elapsedTime = DISPLAY_PERIOD;
-  tasks[1].TickFct = &display;
+  tasks[i].period = PERIOD_MOVE;
+  tasks[i].state = MOVEIDLE;
+  tasks[i].elapsedTime = PERIOD_MOVE;
+  tasks[i].TickFct = &tickMove;
   i++;
-
-  TimerSet(GCD_PERIOD);
+  tasks[i].period = PERIOD_SCORE;
+  tasks[i].state = SCORERESET;
+  tasks[i].elapsedTime = PERIOD_SCORE;
+  tasks[i].TickFct = &tickScore;
+  i++;
+  tasks[i].period = PERIOD_GAMESTATE;
+  tasks[i].state = GAMEINIT;
+  tasks[i].elapsedTime = PERIOD_GAMESTATE;
+  tasks[i].TickFct = &tickGameState;
+  i++;
+  tasks[i].period = PERIOD_BOMB;
+  tasks[i].state = BOMBIDLE;
+  tasks[i].elapsedTime = PERIOD_BOMB;
+  tasks[i].TickFct = &tickBomb;
+  
+  TimerSet(PERIOD_GCD);
   TimerOn();
 
   while(1){
-    //Serial.println(p1Joy);
+    //Serial.println(gameState);
   }
 
   return 0;
