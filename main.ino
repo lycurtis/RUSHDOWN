@@ -486,41 +486,43 @@ typedef struct {
 Bomb bombs[MAX_BOMBS]; 
 #define BOMB_WIDTH  22
 #define BOMB_HEIGHT 29
-// Place this function somewhere before its first use (e.g., before tickBomb)
 void resetGame() {
+    // Store the player's X position at the moment of death
+    int playerXAtDeath = xPos;
+
     gameState = 0; // Pause the game
+
+    // ---- NEW: Clear the player's sprite from its last known position ----
+    // The player's visual extent is from Y=CHAR_Y to Y=(CHAR_Y + CHAR_HEIGHT - 1),
+    // and width is CHAR_WIDTH.
+    // We use the same coordinates that tickMove uses for clearing.
+    sprite(playerXAtDeath, playerXAtDeath + CHAR_WIDTH - 1, CHAR_Y, CHAR_Y + CHAR_HEIGHT - 1, 0x0000); // 0x0000 is black (background)
 
     // Reset player position
     xPos = (SCREEN_WIDTH - CHAR_WIDTH) / 2; // Center the player
 
     // Reset player score
     p1Score = 0;
-    // You might want to clear the score display area immediately or let tickScore handle it
-    // For immediate clear: sprite(0, 30, 0, 10, 0x0000); // Clear score display area
     drawScore(p1Score); // Redraw score as 0
 
-    // Deactivate all bombs
+    // Deactivate and clear all bombs
     for (int i = 0; i < MAX_BOMBS; i++) {
         if (bombs[i].active) {
             // Clear the bomb's last visual position
-            int clearTop = (bombs[i].y - 6 < 0) ? 0 : bombs[i].y - 6;
-            int clearBottom = bombs[i].y + 22;
-            sprite(bombs[i].x + 0, bombs[i].x + 21, clearTop, clearBottom, 0x0000); // Clear full visual
+            int clearTop = (bombs[i].y - 6 < 0) ? 0 : bombs[i].y - 6; // Fuse is at y-6
+            int clearBottom = bombs[i].y + 22; // Bomb body extends to y+22
+            // Use BOMB_WIDTH for clearing the bomb sprite
+            sprite(bombs[i].x, bombs[i].x + BOMB_WIDTH - 1, clearTop, clearBottom, 0x0000);
             bombs[i].active = 0;
         }
     }
 
-    // Clear the entire screen and redraw player
-    // fillScreen(0x0000); // Black - This might be too slow/flickery if called often
-    // Instead of full fillScreen, just ensure bombs are cleared and player redrawn.
-    // The bomb clearing loop above handles bombs.
-    // Player will be redrawn by tickMove or when game unpauses.
-    // For now, let's redraw the player immediately at reset position.
+    // Redraw the player at the new reset position
+    // This ensures the player appears immediately at the start.
     drawP1At(xPos);
 
-    // Consider resetting the BOMB task's state if it has multiple states,
-    // though BOMBIDLE is likely fine.
-    // tasks[INDEX_OF_BOMB_TASK].state = BOMBIDLE; // If needed
+    // Note: Your tickMove function, when gameState is 0, will also call drawP1At(xPos).
+    // This is slightly redundant but harmless and ensures the player stays drawn while paused.
 }
 enum BOMB_STATES{BOMBIDLE, BOMBSEND};
 // enum BOMB_STATES{BOMBIDLE, BOMBSEND}; // Already defined
