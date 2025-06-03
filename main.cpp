@@ -230,11 +230,11 @@ typedef struct _task{
 	int (*TickFct)(int); 		//Task tick function
 } task;
 
-const unsigned long PERIOD_JOYSTICK = 50;
+const unsigned long PERIOD_JOYSTICK = 55;
 const unsigned long PERIOD_MOVE = 50;
 const unsigned long PERIOD_SCORE = 1000;
 const unsigned long PERIOD_GAMESTATE = 100;
-const unsigned long PERIOD_BOMB = 100;
+const unsigned long PERIOD_BOMB = 45;
 const unsigned long PERIOD_GCD = 1;
 
 #define NUM_TASKS 5
@@ -342,7 +342,7 @@ int tickMove(int state)
     case MOVERIGHT:
       if(xPos < XPOS_MAX){
         sprite(xPos, xPos + 13, 140, 159, 0x0000); //Clear previous
-        xPos += 7; //Step size (Aka speed)
+        xPos += 9; //Step size (Aka speed)
         if (xPos > XPOS_MAX) xPos = XPOS_MAX; // Clamp
       }
     break;
@@ -350,7 +350,7 @@ int tickMove(int state)
     case MOVELEFT:
       if(xPos > XPOS_MIN){
         sprite(xPos, xPos + 13, 140, 159, 0x0000); //Clear previous
-        xPos -= 7; //Step size(Aka speed)
+        xPos -= 9; //Step size(Aka speed)
         if (xPos < XPOS_MIN) xPos = XPOS_MIN; // Clamp
       }
     break;
