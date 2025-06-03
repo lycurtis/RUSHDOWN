@@ -558,71 +558,70 @@ int tickBomb(int state)
       // Move bomb down
       bombs[i].y += 6; // Adjust speed as desired
 
-      // --- START OF COLLISION DETECTION LOGIC ---
+      int playerInsetX = 3; // Horizontal forgiveness (as you said, width is fine)
 
-      // Define Player Hitbox (smaller than visual)
-      // Player visual X: xPos to xPos + CHAR_WIDTH - 1
-      // Player visual Y: CHAR_Y to CHAR_Y + CHAR_HEIGHT - 1
-      int playerInsetX = 2;     // Inset from left/right edges (e.g., 2 pixels each side)
-      int playerInsetTop = 4;   // Inset from visual top (e.g., 4 pixels)
-      int playerInsetBottom = 2;// Inset from visual bottom (e.g., 2 pixels)
+      // Let's make the player's sensitive area start lower than the top of the head.
+      // For example, start it around the goggle level or even lower.
+      int playerHitboxEffectiveTop = CHAR_Y + 5;    // 140 + 5 = 145 (This is mid-eye/goggle or slightly below)
+                                                   // Increase the `+5` to make it even lower and more forgiving.
+                                                   // E.g., CHAR_Y + 8 would start it at Y=148 (upper chest/overalls).
+
+      int playerHitboxHeight = 10; // How tall is the player's sensitive hitbox?
+                                   // e.g., a 10-pixel high band.
+      int playerHitboxEffectiveBottom = playerHitboxEffectiveTop + playerHitboxHeight -1;
+
 
       int playerLeft   = xPos + playerInsetX;
       int playerRight  = xPos + CHAR_WIDTH - 1 - playerInsetX;
-      int playerTop    = CHAR_Y + playerInsetTop;
-      int playerBottom = CHAR_Y + CHAR_HEIGHT - 1 - playerInsetBottom;
+      int playerTop    = playerHitboxEffectiveTop;
+      int playerBottom = playerHitboxEffectiveBottom;
 
-      // Define Bomb Hitbox (smaller than visual, focus on main body)
-      // Bomb visual X (main body): currentBombX to currentBombX + BOMB_WIDTH - 1
-      // Bomb visual Y (main body): currentBombY to currentBombY + 22 (approx.)
-      // Fuse is at currentBombY - 6. BOMB_HEIGHT (29) includes fuse.
-      int bombInsetX = 5;        // Inset from bomb's left/right edges
-      int bombInsetBodyTop = 4;  // Inset from the top of the bomb's *main body* (currentBombY)
-      int bombVisualBodyHeight = 23; // Approx. height of the black part of the bomb
-      int bombInsetBodyBottom = 4; // Inset from the bottom of the bomb's *main body*
+      // Ensure playerBottom doesn't exceed visual limits if necessary, though CHAR_Y + CHAR_HEIGHT -1 is 159.
+      if (playerBottom > CHAR_Y + CHAR_HEIGHT - 1) {
+          playerBottom = CHAR_Y + CHAR_HEIGHT - 1;
+      }
+      if (playerTop > playerBottom) { // Should not happen if height > 0
+          playerTop = playerBottom;
+      }
 
-      int bombLeft   = currentBombX + bombInsetX;
-      int bombRight  = currentBombX + BOMB_WIDTH - 1 - bombInsetX;
-      int bombTop    = currentBombY + bombInsetBodyTop; // Hitbox starts below fuse, into the body
-      int bombBottom = currentBombY + bombVisualBodyHeight - 1 - bombInsetBodyBottom;
 
-      // Ensure hitboxes are valid (optional, but good practice if insets are large)
+      // Define Bomb Hitbox (Focus on its lower part)
+      // Bomb's main visual body ends around bombs[i].y + 22
+      int bombVisualBottomY = bombs[i].y + 22; // The Y-coordinate of the bomb's visual bottom tip
+
+      // Let the bomb's dangerous part be its lower half or tip.
+      // We'll make its hitbox start from its middle downwards, or just its bottom part.
+      int bombHitboxHeight = 12; // Make the bomb's effective hitbox, say, 12 pixels tall
+                                // This means it's not just the tip, but a portion of its lower body.
+
+      int bombTop    = bombVisualBottomY - bombHitboxHeight + 1; // Top of the bomb's hitbox
+      int bombBottom = bombVisualBottomY;                       // Bottom of the bomb's hitbox is its visual bottom
+
+
+      // Horizontal extent of the bomb's hitbox (as you said, width is fine)
+      int bombHorizontalInset = 6;
+      int bombLeft   = bombs[i].x + bombHorizontalInset;
+      int bombRight  = bombs[i].x + BOMB_WIDTH - 1 - bombHorizontalInset;
+
+      // Ensure hitboxes have valid dimensions (Right >= Left, Bottom >= Top)
       if (playerRight < playerLeft) playerRight = playerLeft;
-      if (playerBottom < playerTop) playerBottom = playerTop;
+      // playerTop and playerBottom already handled
       if (bombRight < bombLeft) bombRight = bombLeft;
-      if (bombBottom < bombTop) bombBottom = bombTop;
-      
+      if (bombBottom < bombTop) bombTop = bombBottom; // Hitbox is at least 1 pixel high
+
       // AABB (Axis-Aligned Bounding Box) Collision Check
-      // Check against the bomb's position *before* it was redrawn at the new spot,
-      // or its new spot bombs[i].y if you prefer collision at the final drawn spot.
-      // Using currentBombY (position before this tick's move, but after last tick's draw)
-      // or bombs[i].y (position after this tick's move, where it will be drawn this tick)
-      // Let's use bombs[i].y for where it *will* be drawn.
-      // So re-calculate bomb hitbox with bombs[i].x and bombs[i].y
-      
-      bombLeft   = bombs[i].x + bombInsetX;
-      bombRight  = bombs[i].x + BOMB_WIDTH - 1 - bombInsetX;
-      bombTop    = bombs[i].y + bombInsetBodyTop;
-      bombBottom = bombs[i].y + bombVisualBodyHeight - 1 - bombInsetBodyBottom;
-      
-      if (bombRight >= playerLeft && bombLeft <= playerRight &&
-          bombBottom >= playerTop && bombTop <= playerBottom) {
+      if (bombRight >= playerLeft && bombLeft <= playerRight &&    // Horizontal overlap
+          bombBottom >= playerTop && bombTop <= playerBottom) {   // Vertical overlap
         
         resetGame(); // Call the reset game function
-        // No need to draw this bomb, game is resetting
-        // We might want to ensure the BOMB task goes to a safe state,
-        // but resetGame handles deactivating bombs.
-        return BOMBIDLE; // Or 'state' if BOMBIDLE is the only active play state
+        return BOMBIDLE; // Stop processing this bomb, game is resetting
       }
-      // --- END OF COLLISION DETECTION LOGIC ---
+      // --- END OF MODIFIED COLLISION DETECTION LOGIC ---
 
-      // Deactivate if bomb is off screen (using its new Y position)
-      // Check if the very top of the bomb (fuse tip) is below the screen
+      // Deactivate if bomb is off screen... (rest of the code from your file)
       if ((bombs[i].y - 6) > 160) { 
         bombs[i].active = 0;
-        // No need to clear here, it was cleared before move, and it's off-screen now
       } else {
-        // If no collision and not off-screen, draw the bomb at its new position
         drawBomb(bombs[i].x, bombs[i].y);
       }
     }
